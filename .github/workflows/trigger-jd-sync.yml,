@@ -1,0 +1,39 @@
+name: Trigger job-description sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "job-descriptions/**.md"
+      - "job-descriptions/**.markdown"
+
+env:
+  APP_TRIGGER_URL: "https://muzzle-bargraph-stainable.ngrok-free.dev/trigger"
+  RETRY_ATTEMPTS: 3
+  RETRY_DELAY_SECONDS: 10
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the app's trigger endpoint (with retries)
+        run: |
+          for attempt in $(seq 1 "$RETRY_ATTEMPTS"); do
+            if curl --fail --max-time 120 -X POST "$APP_TRIGGER_URL" \
+                 -H "X-Trigger-Secret: ${{ secrets.TRIGGER_SHARED_SECRET }}"; then
+              exit 0
+            fi
+            echo "Attempt $attempt/$RETRY_ATTEMPTS failed."
+            if [ "$attempt" -lt "$RETRY_ATTEMPTS" ]; then
+              sleep "$RETRY_DELAY_SECONDS"
+            fi
+          done
+          echo "All $RETRY_ATTEMPTS attempts failed."
+          exit 1
+
+      - name: Notify Pumble if the app couldn't be reached after retries
+        if: failure()
+        run: |
+          curl --fail --max-time 15 -X POST "${{ secrets.PUMBLE_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "Job description sync: couldnt reach the app after several retries. Re-run this workflow manually once its back up."}'
