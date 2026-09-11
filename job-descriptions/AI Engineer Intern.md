@@ -1,6 +1,4 @@
 # AI Engineer Intern
-Hiii thissss is ipsitaaaaaa 
-
 **Remote | 4 Months | 6 Hours/Day, 6 Days/Week | Unpaid Internship**
 
 ## About the Role
