@@ -1,0 +1,69 @@
+
+name: JD PDF sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "job-descriptions/**.md"
+      - "job-descriptions/**.markdown"
+
+env:
+  APP_REPO: Infineo-Live/JD-PDF-Automation
+  APP_REPO_REF: main
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4  # this content repo, at $GITHUB_WORKSPACE
+
+      - uses: actions/checkout@v4  # the app's code
+        with:
+          repository: ${{ env.APP_REPO }}
+          ref: ${{ env.APP_REPO_REF }}
+          token: ${{ secrets.APP_REPO_TOKEN }}
+          path: .jd-pdf-app
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r .jd-pdf-app/requirements.txt
+
+      - name: Write Google service account key
+        run: echo "$GOOGLE_CREDENTIALS_JSON" > "$RUNNER_TEMP/google-credentials.json"
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+
+      - name: Run the pipeline
+        working-directory: .jd-pdf-app
+        env:
+          PYTHONPATH: src
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+          GITHUB_MD_PATH: job-descriptions
+          STATE_FILE_PATH: ${{ github.workspace }}/.jd-pdf-state/state.json
+          HEADER_IMAGE_PATH: ${{ github.workspace }}/.jd-pdf-app/assets/header.png
+          GOOGLE_CREDENTIALS_PATH: ${{ runner.temp }}/google-credentials.json
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          PUMBLE_WEBHOOK_URL: ${{ secrets.PUMBLE_WEBHOOK_URL }}
+        run: python -m app.main
+
+      - name: Commit updated state
+        if: always()
+        run: |
+          if [ ! -f .jd-pdf-state/state.json ]; then
+            echo "No state file produced; nothing to commit."
+            exit 0
+          fi
+          git config user.name "jd-pdf-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .jd-pdf-state/state.json
+          git diff --cached --quiet || git commit -m "chore: update jd-pdf sync state [skip ci]"
+          git push
